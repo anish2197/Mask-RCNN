@@ -1,0 +1,5 @@
+
+python3 xml_to_csv_tf.py -i /home/faurecia/FAQT-retinanet/TF-object-detection/images/train/ -o /home/faurecia/FAQT-retinanet/TF-object-detection/annotations/train_black_labels.csv
+
+python3 ./samples/balloon/balloon.py train --dataset=./datasets/faqt/ --weights=/home/faurecia/FAQT-retinanet/Mask_RCNN/logs/black_binary_768x1280/1/balloon20190919T1454/mask_rcnn_balloon_0033.h5 --logs=./logs/black_binary_768x1280/2/
+
