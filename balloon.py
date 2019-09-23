@@ -34,11 +34,10 @@ import datetime
 import numpy as np
 import pandas as pd
 import skimage.draw
-
+import time
 # Root directory of the project
 ROOT_DIR = os.path.abspath("../../")
-CSV_PATH_TRAIN = "/home/faurecia/FAQT-retinanet/Mask_RCNN/datasets/faqt/black_labels_train_binary.csv"
-CSV_PATH_VAL = "/home/faurecia/FAQT-retinanet/Mask_RCNN/datasets/faqt/black_labels_val_binary.csv"
+
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
@@ -55,6 +54,7 @@ DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 #  Configurations
 ############################################################
 
+NUM_EPOCHS = 100
 
 class BalloonConfig(Config):
     """Configuration for training on the toy  dataset.
@@ -65,17 +65,22 @@ class BalloonConfig(Config):
 
     # We use a GPU with 12GB memory, which can fit two list_filenames = list(set(df["filename"]))images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 100
+    IMAGES_PER_GPU = 4
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + balloon
 
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
-
+    #STEPS_PER_EPOCH = 10
+    STEPS_PER_EPOCH = 73
     # Skip detections with < 90% confidence
-    DETECTION_MIN_CONFIDENCE = 0.9
+    DETECTION_MIN_CONFIDENCE = 0.8
 
+    IMAGE_RESIZE_MODE = "square"
+    IMAGE_MIN_DIM = 768
+    IMAGE_MAX_DIM = 1280
+
+    VALIDATION_STEPS = 10
 
 ############################################################
 #  Dataset
@@ -92,6 +97,8 @@ class BalloonDataset(utils.Dataset):
         self.add_class("balloon", 1, "balloon")
 
         # Train or validation dataset?
+        CSV_PATH_TRAIN = dataset_dir+"/train_labels.csv"
+        CSV_PATH_VAL = dataset_dir+"/val_labels.csv"
         assert subset in ["train", "val"]
         if subset == "train":
             df = pd.read_csv(CSV_PATH_TRAIN)
@@ -175,7 +182,62 @@ class BalloonDataset(utils.Dataset):
             image = skimage.io.imread(image_path)
             height, width = image.shape[:2]
         """
+    def load_balloon_eval(self, dataset_dir):
+        """Load a subset of the Balloon dataset.
+        dataset_dir: Root directory of the dataset.
+        subset: Subset to load: train or val
+        """
+        # Add classes. We have only one class to add.
+        self.add_class("balloon", 1, "balloon")
 
+        # Train or validation dataset?
+        #CSV_PATH_TRAIN = dataset_dir+"/train_labels.csv"
+        #CSV_PATH_VAL = dataset_dir+"/val_labels.csv"
+        #assert subset in ["train", "val"]
+        #if subset == "train":
+        #    df = pd.read_csv(CSV_PATH_TRAIN)
+        #elif subset == "val":
+        #    df = pd.read_csv(CSV_PATH_VAL)
+        #dataset_dir = os.path.join(dataset_dir, subset)BATCH_SIZE
+
+
+        list_filenames = list(os.listdir(dataset_dir))
+
+        print("NUMBER OF IMAGES :", len(list_filenames))
+        #list_filenames = list(set(df["filename"]))
+        for l in list_filenames:
+            print(l)
+            #temp_df = df[df["filename"] == l]
+            """
+            polygons = []
+            names = []
+            names = []
+            for i,rows in temp_df.iterrows():
+                temp_poly = {}
+                temp_name = {}
+                temp_poly["names"] = "polygon"
+                temp_poly['all_points_x'] = [rows['xmin'],rows['xmax'],rows['xmax'],rows['xmin']]
+                temp_poly['all_point
+                s_y'] = [rows['ymin'],rows['ymin'],rows['ymax'],rows['ymax']]
+                temp_name["name"] = rows['class']
+                temp_name['image_quality'] = {
+                    'frontal': True,
+                    'good_illumination': True,
+                    'good': True
+                }
+                temp_name['type'] = 'unknown'
+                polygons.append(temp_poly)
+                names.append(temp_name)
+            """
+            image_path = os.path.join(dataset_dir, l)
+            image = skimage.io.imread(image_path)
+            height, width = image.shape[:2]
+
+            self.add_image(
+                "balloon",
+                image_id=l,  # use file name as a unique image id
+                path=image_path,
+                width=width, height=height)
             
 
     def load_mask(self, image_id):
@@ -232,7 +294,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=30,
+                epochs=NUM_EPOCHS,
                 layers='heads')
 
 
@@ -255,7 +317,128 @@ def color_splash(image, mask):
         splash = gray.astype(np.uint8)
     return splash
 
+def evaluation(model, image_path=None, video_path=None):
+    assert image_path or video_path
+    true_positives = 0
+    false_negatives = 0
+    true_negatives = 0
+    false_positives = 0
+    # Image or video?
 
+    list_filenames = list(os.listdir(image_path+"/good"))
+    print("**********FOR GOOD IMAGES : ")
+    print("**********NUMER OF GOOD IMAGES :", len(list_filenames))
+    cnt = 0
+    if image_path:
+
+        for i in list_filenames:
+        # Run model detection and generate the color splash effect
+            cnt += 1
+            print(cnt,"/",len(list_filenames))
+            print("Running on {}".format(i))
+            # Read image
+            image = skimage.io.imread(image_path+"/good"+"/"+i)
+            # Detect objects
+            start = time.time()
+            r = model.detect([image], verbose=0)[0]
+            print("processing time: ", time.time() - start)
+            
+            num_preds = r["rois"].shape[0]
+            print("**********NUMBER OF PREDS : ",num_preds)
+            if num_preds > 0 :
+                false_positives += 1
+            else:
+                true_negatives += 1
+            # Color splash
+            #splash = color_splash(image, r['masks'])
+            # Save output
+            #file_name = i
+            #skimage.io.imsave("/home/faurecia/FAQT-retinanet/Mask_RCNN/val_output/black/good/" + file_name, splash)
+
+
+
+    list_filenames = list(os.listdir(image_path+"/bad"))
+    print("**********FOR BAD IMAGES : ")
+    print("**********NUMER OF BAD IMAGES :", len(list_filenames))
+    cnt = 0
+    if image_path:
+
+        for i in list_filenames:
+        # Run model detection and generate the color splash effect
+            cnt += 1
+            print(cnt,"/",len(list_filenames))
+            print("Running on {}".format(i))
+            # Read image
+            image = skimage.io.imread(image_path+"/bad"+"/"+i)
+            # Detect objects
+            start = time.time()
+            r = model.detect([image], verbose=0)[0]
+            print("processing time: ", time.time() - start)
+
+            num_preds = r["rois"].shape[0]
+            print("**********NUMBER OF PREDS : ",num_preds)
+
+            if num_preds == 0 :
+                false_negatives += 1
+            else:
+                true_positives += 1
+            # Color splash
+            #splash = color_splash(image, r['masks'])
+            # Save output
+            #file_name = i
+            #skimage.io.imsave("/home/faurecia/FAQT-retinanet/Mask_RCNN/val_output/black/bad/" + file_name, splash)
+
+
+
+
+
+    precision = true_positives / (true_positives + false_positives)
+    recall = true_positives / (true_positives + false_negatives)
+    f1 = (2 * precision * recall) / (precision + recall)
+
+    #print("CONFIDENCE THRESHOLD : " + str(CONF_THRESHOLD))
+    print("False negatives : " + str(false_negatives))
+    print("False positives : " + str(false_positives))
+    print("RECALL : " + str(recall))
+    print("PRECISION : " + str(precision))
+    print("F1 SCORE : " + str(f1))
+    """
+    elif video_path:
+        import cv2
+        # Video capture
+        vcapture = cv2.VideoCapture(video_path)
+        width = int(vcapture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(vcapture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = vcapture.get(cv2.CAP_PROP_FPS)
+
+        # Define codec and create video writer
+        file_name = "splash_{:%Y%m%dT%H%M%S}.avi".format(datetime.datetime.now())
+        vwriter = cv2.VideoWriter(file_name,
+                                  cv2.VideoWriter_fourcc(*'MJPG'),
+                                  fps, (width, height))
+
+        count = 0
+        success = True
+        while success:
+            print("frame: ", count)
+            # Read next image
+            success, image = vcapture.read()
+            if success:
+                # OpenCV returns images as BGR, convert to RGB
+                image = image[..., ::-1]
+                # Detect objects
+                r = model.detect([image], verbose=0)[0]
+                # Color splash
+                splash = color_splash(image, r['masks'])
+                # RGB -> BGR to save image to video
+                splash = splash[..., ::-1]
+                # Add image to video writer
+                vwriter.write(splash)
+                count += 1
+        vwriter.release()
+
+    print("Saved to ", file_name)
+    """
 def detect_and_color_splash(model, image_path=None, video_path=None):
     assert image_path or video_path
 
@@ -401,6 +584,9 @@ if __name__ == '__main__':
         train(model)
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
+                                video_path=args.video)
+    elif args.command == "eval":
+        evaluation(model, image_path=args.image,
                                 video_path=args.video)
     else:
         print("'{}' is not recognized. "
